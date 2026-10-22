@@ -1,7 +1,8 @@
 {
-  "input_package": "koishi-plugin-atri-journal-dreams-0.4.1.tgz",
-  "input_sha256": "9f19bdaf3145a459795ca01cd975ed9b72ed2546d5c7be8b136253557b9d8107",
-  "published_version": "0.4.1-beta.1",
-  "changes": "Public package metadata, documentation, privacy field hints and helper tests; no change to diary/dream core behavior.",
+  "input": "koishi-plugin-atri-journal-dreams-0.4.3.tgz",
+  "input_sha256": "2f8e77d457a97d70c98a0065b04bec90912bebe9bf4d51619f2576fe624f12b1",
+  "version": "0.4.3-beta.1",
+  "baseline": "0.4.3",
+  "changes": "Beta metadata, public documentation and 12 public interface regression checks. Core index.js unchanged from user package.",
   "upstream_hds": "https://github.com/ISEKAI-MomoiCore/HDS-Interlude"
 }

@@ -70,8 +70,8 @@ exports.Config = Schema.intersect([
       Schema.const('custom').description('单独的 OpenAI 兼容接口'),
     ]).default('hds'),
     model: Schema.string().default('').description('覆盖模型名；留空使用路由默认模型。'),
-    endpoint: Schema.string().default('').description('custom：请填写自己的完整 chat/completions 地址；默认留空。'),
-    apiKey: Schema.string().role('secret').default('').description('custom：请填写自己的API Key；默认留空，禁止上传。'),
+    endpoint: Schema.string().default('').description('custom：完整 chat/completions 地址。'),
+    apiKey: Schema.string().role('secret').default('').description('custom：API Key。'),
     temperature: Schema.number().min(0).max(1.5).default(0.85).description('日记与梦境的温度；记忆压缩固定使用低温。'),
     maxTokens: Schema.natural().min(512).max(16000).default(3000),
     timeout: Schema.natural().min(10000).max(600000).default(180000).role('ms'),
@@ -576,6 +576,35 @@ exports.apply = (ctx, config) => {
 
   // ----- generation -----
   const running = new Map()
+  let stopped = false
+  ctx.on('dispose', () => { stopped = true })
+  /** 让位 HDS 正在处理的前台回合：最多等 60 秒，之后照常继续（后台任务不因忙碌判失败）。 */
+  async function yieldForeground(storyId, maxMs = 60000) {
+    const busy = () => typeof service.hasPendingNarrative === 'function' && service.hasPendingNarrative(storyId)
+    const start = Date.now()
+    let step = 500
+    while (!stopped && busy() && Date.now() - start < maxMs) {
+      await new Promise(resolve => { const t = setTimeout(resolve, step); t.unref?.() })
+      step = Math.min(4000, step * 2)
+    }
+    if (stopped) throw new Error('插件已停用')
+  }
+  /** 每完成一个阶段就落库，重启后从断点继续，不重复生成已完成的部分。 */
+  async function checkpoint(id, fields) {
+    await db.set('atri_journal_cycle', { id }, { ...fields, updatedAt: new Date() })
+  }
+  // 后台周期逐个排队处理，不同时向模型发起多份日记/梦境请求。
+  const queued = new Set()
+  let queue = Promise.resolve()
+  function enqueue(id) {
+    if (queued.has(id) || running.has(id)) return
+    queued.add(id)
+    queue = queue.then(async () => {
+      if (stopped) return
+      const [row] = await db.get('atri_journal_cycle', { id })
+      if (row && row.status === 'pending') await processCycle(row)
+    }).catch(error => logger.warn('后台生成异常：%s', error?.message || error)).finally(() => queued.delete(id))
+  }
   async function processCycle(cycle, force = false) {
     if (running.has(cycle.id)) return running.get(cycle.id)
     const job = (async () => {
@@ -588,12 +617,15 @@ exports.apply = (ctx, config) => {
       const context = JSON.stringify({ hds: mat.hds, characterName: mat.characterName, diaryDate: `${cycle.dateKey} ${WEEKDAYS[keyWeekday(cycle.dateKey)]}`, awakeWindow: mat.window })
       const patch = { attempts: (cycle.attempts || 0) + 1, updatedAt: now }
       const last = patch.attempts >= config.maxAttempts
+      // 先记下尝试次数：生成中途重启也计入，避免同一周期无限重来。
+      await checkpoint(cycle.id, { attempts: patch.attempts })
       let { diary, memory, dream } = cycle
       const errors = []
       try {
         if (!diary) {
           if (mat.count < config.minimumEntries) diary = { skipped: true, reason: `清醒期有效剧情仅 ${mat.count} 条` }
           else {
+            await yieldForeground(cycle.storyId)
             const raw = await callModel('私人日记', diarySystem(config), `${context}\n\n剧情素材（按时间）：\n${mat.lines.join('\n')}`)
             const sections = normalizeBlocks(raw.sections || raw.paragraphs, { participantIds: mat.participantIds, sourceIds: mat.sourceIds, maxChars: config.maxDiaryChars, maxItems: config.maxSections })
             if (!sections.length) throw new Error('日记没有有效小节')
@@ -601,6 +633,7 @@ exports.apply = (ctx, config) => {
           }
           patch.diary = diary
           patch.sourceHashes = { ...(cycle.sourceHashes || {}), ...mat.sourceHashes }
+          await checkpoint(cycle.id, { diary: patch.diary, sourceHashes: patch.sourceHashes })
         }
       } catch (error) { errors.push(`日记：${error?.message || error}`) }
       try {
@@ -608,6 +641,7 @@ exports.apply = (ctx, config) => {
           const ids = new Set(diary.sections.flatMap(s => s.sources))
           try {
             const people = mat.hds.participants.map(p => ({ id: p.id, displayName: p.displayName }))
+            await yieldForeground(cycle.storyId)
             const raw = await callModel('日记记忆压缩', memorySystem(), JSON.stringify({ participants: people, diary: { date: cycle.dateKey, title: diary.title, mood: diary.mood, sections: diary.sections, lingering: diary.lingering } }), 0.2)
             const facts = normalizeFacts(raw.facts, { participantIds: mat.participantIds, sourceIds: ids })
             if (!facts.length && !raw.summary) throw new Error('压缩结果为空')
@@ -618,17 +652,20 @@ exports.apply = (ctx, config) => {
             memory = fallbackMemory(diary)
           }
           patch.memory = memory
+          await checkpoint(cycle.id, { memory })
         }
       } catch (error) { errors.push(`记忆压缩：${error?.message || error}`) }
       try {
         if (cycle.dreamDrawn && !dream) {
           const residue = diary && !diary.skipped ? `\n睡前的日记（梦的余温，可变形取用）：\n${diary.sections.map(s => s.text).join('\n')}` : ''
+          await yieldForeground(cycle.storyId)
           const raw = await callModel('梦境', dreamSystem(config, cycle.dreamDraw || {}), `${context}${residue}\n\n最近的经历（意象来源）：\n${mat.lines.slice(-60).join('\n')}`)
           const paragraphs = normalizeBlocks(raw.paragraphs, { participantIds: mat.participantIds, sourceIds: mat.sourceIds, maxChars: config.maxDreamChars, sourceKey: 'inspiredBy' })
           if (!paragraphs.length) throw new Error('梦境没有有效段落')
           dream = { paragraphs, aftertaste: clip(raw.aftertaste, 80) }
           patch.dream = dream
           patch.sourceHashes = { ...(cycle.sourceHashes || {}), ...(patch.sourceHashes || {}), ...mat.sourceHashes }
+          await checkpoint(cycle.id, { dream, sourceHashes: patch.sourceHashes })
         }
       } catch (error) { errors.push(`梦境：${error?.message || error}`) }
       const complete = !!diary && (diary.skipped || !!memory) && (!cycle.dreamDrawn || !!dream)
@@ -705,7 +742,8 @@ exports.apply = (ctx, config) => {
         }
         await saveRuntime(story.id, next)
         for (const cycle of await db.get('atri_journal_cycle', { storyId: story.id, status: 'pending' })) {
-          processCycle(cycle).catch(error => logger.warn('后台生成异常：%s', error?.message || error))
+          if (cycle.nextAttemptAt && new Date(cycle.nextAttemptAt) > now) continue
+          enqueue(cycle.id)
         }
         await maintain(story, now)
       }
@@ -871,7 +909,13 @@ exports.apply = (ctx, config) => {
   let active = true
   const current = service.getNarrator()
   const innermost = !isProxy(current)
-  const host = current
+  // 其他插件若用 Object.create(原叙述器) 包装（如 atri-bilibili），沿原型链找到 HDS 原生实例再挂载。
+  let host = current
+  while (innermost && Object.prototype.hasOwnProperty.call(host, 'decide')) {
+    const proto = Object.getPrototypeOf(host)
+    if (!proto || proto === Object.prototype || isProxy(proto) || typeof proto.decide !== 'function' || proto.constructor?.prototype === proto) break
+    host = proto
+  }
   const hadOwn = innermost && Object.prototype.hasOwnProperty.call(host, 'decide')
   let originalDecide = host.decide
   const realDecide = originalDecide
@@ -986,7 +1030,7 @@ exports.apply = (ctx, config) => {
     ctx.setInterval(tick, config.checkIntervalMinutes * MIN)
   })
 
-  exports._lastInstance = { tick, processCycle, buildRecall, maintain, writeDayArchive, wrapped, base, layer, innermost, setNativeDecide: (fn) => { originalDecide = fn }, archiveRoot, pendingSelfRecall }
+  exports._lastInstance = { tick, processCycle, enqueue, queueIdle: () => queue, buildRecall, maintain, writeDayArchive, wrapped, base, layer, innermost, setNativeDecide: (fn) => { originalDecide = fn }, archiveRoot, pendingSelfRecall }
 }
 
 exports._test = { observeSleep, sleepSignal, inWindow, parseModelJson, normalizeBlocks, normalizeFacts, normalizeTags, overlapRatio, parseDateRefs, diaryDateKey, renderDay, shiftKey }

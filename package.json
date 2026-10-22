@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-atri-journal-dreams",
-  "version": "0.4.1-beta.1",
-  "description": "Atri子项目 / HDS非官方扩展：睡眠日记、梦境与逐渐模糊的回忆",
+  "version": "0.4.3-beta.1",
+  "description": "HDS-Interlude 扩展：按剧情睡眠写只有 Atri 自己知道的分节日记，按日期归档，记忆随时间模糊，每轮睡眠一次梦境抽签",
   "main": "index.js",
   "files": [
     "index.js",
@@ -37,12 +37,5 @@
   "scripts": {
     "check": "node --check index.js",
     "test": "node --test qa/*.test.cjs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kf15884/atri-journal-dreams.git"
-  },
-  "devDependencies": {
-    "koishi": "4.18.11"
   }
 }

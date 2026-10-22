@@ -1,16 +1,16 @@
+# Atri Journal & Dreams 0.4.3-beta.1
+
+Atri的日记与梦境子项目，与[HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude)配合，非HDS官方项目。MIT仅适用于本扩展；HDS自身许可不变。
+
+可选Beta，基于用户交付的0.4.3重新打包；日记、压缩、梦境每阶段持久化断点，多周期顺序队列，阶段前让位前台回合，并包含0.4.2宿主查找兼容修复。生产已安装0.4.3，真实睡眠周期完整生成/归档/同日去重尚待验收。
+
+沿用现有人设、演化、记忆和故事，不另起人格模型。升级前一致性备份，不删除数据库/归档，不重建故事；不要用旧数据库覆盖新聊天。源TGZ未附0.4.3内部QA，本次只报告实际执行的检查；既有0.4.1公开测试不充当0.4.3六项内部测试。
+
+---
+
 # koishi-plugin-atri-journal-dreams
 
 HDS-Interlude（rc57 起）扩展。Atri 每晚按剧情入睡时，会写一篇只有她自己知道的分节日记，按日期归档。日记的记忆会随时间变模糊。每一觉只抽一次签，决定醒来后是否还记得一个梦。
-
-## Atri 子项目与 HDS 的关系
-
-本项目是 **Atri 项目的子项目**，属于非官方扩展，不是独立聊天核心，也不属于 HDS 官方发行。
-
-- [HDS-Interlude](https://github.com/ISEKAI-MomoiCore/HDS-Interlude) 是剧情、人设、关系、记忆和叙事发送链路的基础；各插件只在各自职责范围内接入，不打包或替代 HDS 核心。HDS 自身许可保持不变。
-- [Atri Bili](https://github.com/kf15884/atri-bili-plugins)：只读视频资料、HDS 观看节奏和 QQ 卡片。
-- [Atri Album](https://github.com/kf15884/atri-album)：剧情拍照、异步生成、看照片与相册回忆。
-- [Atri Journal Dreams](https://github.com/kf15884/atri-journal-dreams)：按剧情主要睡眠生成私有日记与梦境。
-- [旧 Atri Diary](https://github.com/kf15884/koishi-plugin-atri-diary) 是另一个包名与工作流；本次不覆盖它，也不自动迁移数据。
 
 ## 日记
 
@@ -78,31 +78,20 @@ data/atri-journal-dreams/<故事>/<年>/<月>/
 
 HDS 需要配置可用的压缩（侧端）模型；未配置时请把 `source` 改为 `custom`。
 
+## 后台生成（0.4.3）
+
+- 日记、记忆压缩、梦境每完成一个阶段就写入数据库；中途重启会从断点继续，不重新写已完成的部分（尝试次数照常累计）。
+- 多个待处理的睡眠周期逐个排队，不同时向模型发多份请求。
+- 每个阶段开始前，若 HDS 正在处理前台回合，最多让位 60 秒再继续；忙碌不算失败。
+
 ## 与其他 HDS 扩展共存
 
-插件会挂在 HDS 原生叙述器的最内层，atri-bilibili、atri-bili-eyes、atri-album 等包装叙述器的扩展会在外层照常工作；Atri 自己想到日记、同一回合重写时只重调原生叙述器，不会让外层扩展重复执行。若加载时叙述器已被包装，会自动退回外层挂载并在日志里提示，此时建议在插件配置里把本插件排在 `hds-interlude` 之后。
+插件会挂在 HDS 原生叙述器的最内层，atri-bilibili、atri-bili-eyes、atri-album 等包装叙述器的扩展会在外层照常工作；Atri 自己想到日记、同一回合重写时只重调原生叙述器，不会让外层扩展重复执行。atri-bilibili 这类用 `Object.create` 包装的扩展无论排在前后都能识别。若加载时叙述器已被 Proxy 包装，会自动退回外层挂载并在日志里提示，此时建议在插件配置里把本插件排在 `hds-interlude` 之后。
 
 ## 安装（离线包）
 
-如果你的HDS rc57使用本地vendor安装，安装时请加 `--legacy-peer-deps`，避免 npm 去公共源解析 peer 依赖：
+HDS rc57 是本地 vendor 包，安装时请加 `--legacy-peer-deps`，避免 npm 去公共源解析 peer 依赖：
 
 ```bash
-npm install ./vendor/koishi-plugin-atri-journal-dreams-0.4.1-beta.1.tgz --legacy-peer-deps
+npm install ./vendor/koishi-plugin-atri-journal-dreams-0.4.3-beta.1.tgz --legacy-peer-deps
 ```
-
-## Beta 发布与填写提示
-
-本仓库是Atri睡眠日记与梦境子项目的0.4.1-beta.1预发布，基于用户提供的0.4.1附件整理；并非旧包 `koishi-plugin-atri-diary` 的原地升级，不覆盖旧项目或自动迁移其数据。
-
-- `storyId`：默认空，按插件规则处理所有活动故事；仅处理一个故事时请填写自己的故事ID。
-- 默认 `source=hds`，复用HDS压缩/侧端模型路由，人设及剧情也来自HDS。
-- `source=custom` 时：`endpoint` 填 `https://<请填写接口域名>/<请填写完整chat/completions路径>`；`apiKey` 填 `<请填写自己的API Key>`；`model` 填 `<请填写模型名>`。三个默认均空，提示文字不是可用配置。
-- 需Koishi数据库与interlude服务、Node20+，HDS声明rc57起；本轮只对公开包做默认值、工具函数和语法测试，未完成rc57实机端到端验收。详细结果见VALIDATION.md。
-
-## 隐私与模型边界
-
-“只有Atri知道”是角色行为设计，不是加密或绝对保密保证。日记原文、记忆及梦境会进入自己配置的HDS侧端或custom模型；被回忆时也可能进入HDS主模型。请确认服务商的数据处理政策。模型可能误述或泄露提示上下文，其他插件、日志、服务器管理员或备份也可能读取内容。
-
-数据库与Markdown文件为本地明文，gzip/base64不是加密；权限600不能防止拥有服务器权限的人读取。公开仓库不含你的真实日记、故事、关系、数据库、日志、账号或Key。运行状态与错误可能包含故事标识或远端信息，排障前另行脱敏。
-
-本插件的管理员命令只报告状态/触发写作/删除，不提供聊天显示日记正文的命令。对话中自动回忆仍受模型表现、参与者归属及HDS设置影响，不能当作安全隔离边界。
