@@ -1,0 +1,10 @@
+node_modules/
+data/
+.env
+koishi.yml
+config.json
+*.db
+*.sqlite*
+*.log
+*.pem
+*.key
