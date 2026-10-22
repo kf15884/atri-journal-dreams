@@ -1,7 +1,16 @@
 {
-  "input_package": "koishi-plugin-atri-journal-dreams-0.4.1.tgz",
-  "input_sha256": "9f19bdaf3145a459795ca01cd975ed9b72ed2546d5c7be8b136253557b9d8107",
-  "published_version": "0.4.1-beta.1",
-  "changes": "Public package metadata, documentation, privacy field hints and helper tests; no change to diary/dream core behavior.",
-  "upstream_hds": "https://github.com/ISEKAI-MomoiCore/HDS-Interlude"
+  "atri_subprojects": true,
+  "hds_upstream": "https://github.com/ISEKAI-MomoiCore/HDS-Interlude",
+  "hds_commit": "9bdd5ac776dd682911edb9b48d1e7eaedd720dbe",
+  "hds_source_modified": false,
+  "deployed": false,
+  "github_published": false,
+  "production_data_included": false,
+  "bili_baseline": "user supplied 0.8.3",
+  "bili_version": "0.8.4-beta.1",
+  "bili_eyes_version": "0.6.1-beta.1",
+  "third_party_licenses": [
+    "Atri plugins MIT",
+    "HDS AGPL-3.0"
+  ]
 }

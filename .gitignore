@@ -1,10 +1,11 @@
 node_modules/
-data/
 .env
-koishi.yml
-config.json
 *.db
-*.sqlite*
+*.sqlite
 *.log
-*.pem
-*.key
+data/
+backups/
+.atri-*/
+koishi.yml
+account-session.json
+device-session.json
